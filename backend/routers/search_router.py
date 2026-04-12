@@ -4,7 +4,7 @@ from database import get_db
 from models import LegalCase, SearchHistory, User
 from schemas import SearchRequest, SearchResult, SimilarCase, CaseOut, ReportRequest, CaseReport
 from auth import get_current_user
-from services.embedding import search_similar
+from services.embedding import search_similar, search_similar_chunked
 from services.report import generate_comparison_report
 
 router = APIRouter(prefix="/api/search", tags=["类案检索"])
@@ -19,8 +19,9 @@ def search_similar_cases(
     # 构建查询文本
     query_text = f"【案件名称】{req.case_name}\n【案情描述】{req.case_description}"
 
-    # 向量检索
-    results = search_similar(query_text, top_k=req.top_k or 5)
+    # 使用查询切分多路检索（自动退化：短查询走单向量，长查询走切分合并）
+    top_k = req.top_k or 5
+    results = search_similar_chunked(query_text, top_k=top_k)
 
     if not results:
         # 保存搜索记录

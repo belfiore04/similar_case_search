@@ -1,11 +1,13 @@
 """
 嵌入模型服务 - 使用阿里 DashScope text-embedding-v3
+支持单向量检索和查询切分多路检索两种模式
 """
 import os
+import re
 import numpy as np
 import faiss
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 import dashscope
 from dashscope import TextEmbedding
 
@@ -176,16 +178,121 @@ def rebuild_index(cases: list):
 def _build_case_text(case) -> str:
     """将案例对象拼接为用于嵌入的文本"""
     parts = []
-    if case.keywords:
+    if hasattr(case, 'keywords') and case.keywords:
         parts.append(f"【关键词】{case.keywords}")
-    if case.case_summary:
+    if hasattr(case, 'case_summary') and case.case_summary:
         parts.append(f"【基本案情】{case.case_summary}")
-    if case.dispute_focus:
+    if hasattr(case, 'dispute_focus') and case.dispute_focus:
         parts.append(f"【争议核心】{case.dispute_focus}")
-    if case.judgment_points:
+    if hasattr(case, 'judgment_points') and case.judgment_points:
         parts.append(f"【裁判要点】{case.judgment_points}")
-    if case.related_laws:
+    if hasattr(case, 'related_laws') and case.related_laws:
         parts.append(f"【相关法条】{case.related_laws}")
-    if case.judgment_reason:
+    if hasattr(case, 'judgment_reason') and case.judgment_reason:
         parts.append(f"【裁判理由】{case.judgment_reason}")
-    return "\n".join(parts) if parts else case.case_name
+    # 兼容裁判文书CSV数据：如果以上字段都为空，使用全文
+    if not parts and hasattr(case, 'full_text') and case.full_text:
+        # 全文可能很长，截取前2000字用于嵌入
+        parts.append(case.full_text[:2000])
+    # 兜底：用案件名称 + 案由
+    if not parts:
+        fallback = case.case_name or ""
+        if hasattr(case, 'cause_of_action') and case.cause_of_action:
+            fallback += f" {case.cause_of_action}"
+        return fallback
+    return "\n".join(parts)
+
+
+# ============================================================
+#  查询切分多路检索（Query Chunking + Multi-route Retrieval）
+# ============================================================
+
+def split_query_into_chunks(text: str, min_chunk_len: int = 6) -> List[str]:
+    """
+    将用户查询文本按句切分为语义单元。
+    优先按中文句号/分号/问号/感叹号切分，
+    如果切出的句子仍然很长（>80字），再按逗号二次切分。
+    短于 min_chunk_len 的片段会被合并到相邻句中。
+    """
+    if not text or len(text.strip()) < min_chunk_len:
+        return [text.strip()] if text and text.strip() else []
+
+    # 第一级：按句号、分号、感叹号、问号、换行切分
+    raw_sentences = re.split(r'[。；！？\n]+', text)
+    raw_sentences = [s.strip() for s in raw_sentences if s.strip()]
+
+    # 第二级：过长的句子按逗号再切
+    sentences = []
+    for sent in raw_sentences:
+        if len(sent) > 80:
+            sub_parts = re.split(r'[，,]+', sent)
+            sub_parts = [p.strip() for p in sub_parts if p.strip()]
+            # 合并过短的子句
+            buffer = ""
+            for part in sub_parts:
+                if len(buffer) + len(part) < 60:
+                    buffer = buffer + "，" + part if buffer else part
+                else:
+                    if buffer:
+                        sentences.append(buffer)
+                    buffer = part
+            if buffer:
+                sentences.append(buffer)
+        else:
+            sentences.append(sent)
+
+    # 合并过短的片段到前一句
+    merged = []
+    for sent in sentences:
+        if len(sent) < min_chunk_len and merged:
+            merged[-1] = merged[-1] + "，" + sent
+        else:
+            merged.append(sent)
+
+    return merged if merged else [text.strip()]
+
+
+def search_similar_chunked(text: str, top_k: int = 5) -> List[Tuple[int, float]]:
+    """
+    查询切分多路检索：
+    1. 将查询文本按句切分为多个 chunk
+    2. 每个 chunk 独立向量化并检索 Top-K
+    3. 合并所有 chunk 的检索结果，按综合得分重新排序
+
+    综合得分 = max_score * 0.4 + avg_score * 0.3 + hit_ratio * 0.3
+      - max_score: 该案例在所有 chunk 中的最高相似度
+      - avg_score: 该案例在所有命中 chunk 中的平均相似度
+      - hit_ratio: 命中该案例的 chunk 数 / 总 chunk 数
+    """
+    chunks = split_query_into_chunks(text)
+
+    # 如果只切出 1 个 chunk，退化为普通单向量检索
+    if len(chunks) <= 1:
+        return search_similar(text, top_k=top_k)
+
+    # 每个 chunk 独立检索，多取一些候选
+    per_chunk_k = min(top_k * 3, 20)
+    all_hits: Dict[int, List[float]] = {}
+
+    for chunk in chunks:
+        results = search_similar(chunk, top_k=per_chunk_k)
+        for case_id, score in results:
+            if case_id not in all_hits:
+                all_hits[case_id] = []
+            all_hits[case_id].append(score)
+
+    if not all_hits:
+        return []
+
+    # 合并排序
+    num_chunks = len(chunks)
+    merged = []
+    for case_id, scores in all_hits.items():
+        max_score = max(scores)
+        avg_score = sum(scores) / len(scores)
+        hit_ratio = len(scores) / num_chunks
+        combined = max_score * 0.4 + avg_score * 0.3 + hit_ratio * 0.3
+        merged.append((case_id, round(combined, 4)))
+
+    merged.sort(key=lambda x: x[1], reverse=True)
+    return merged[:top_k]
