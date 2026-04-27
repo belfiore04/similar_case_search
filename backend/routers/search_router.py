@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import LegalCase, SearchHistory, User
-from schemas import SearchRequest, SearchResult, SimilarCase, CaseOut, ReportRequest, CaseReport
+from schemas import SearchRequest, SearchResult, SimilarCase, CaseOut, ReportRequest
 from auth import get_current_user
-from services.embedding import search_similar, search_similar_chunked
+from services.embedding import search_similar_chunked
+from services.query_parser import normalize_case_type, normalize_date, parse_query_filters
 from services.report import generate_comparison_report
 
 router = APIRouter(prefix="/api/search", tags=["类案检索"])
@@ -16,12 +17,18 @@ def search_similar_cases(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    extracted_filters = parse_query_filters(req.case_description)
+    time_range_start = req.time_range_start or extracted_filters.get("time_range_start")
+    time_range_end = req.time_range_end or extracted_filters.get("time_range_end")
+    case_type = normalize_case_type(req.case_type) or extracted_filters.get("case_type")
+
     # 构建查询文本
     query_text = f"【案件名称】{req.case_name}\n【案情描述】{req.case_description}"
 
     # 使用查询切分多路检索（自动退化：短查询走单向量，长查询走切分合并）
     top_k = req.top_k or 5
-    results = search_similar_chunked(query_text, top_k=top_k)
+    candidate_k = max(top_k * 10, 50)
+    results = search_similar_chunked(query_text, top_k=candidate_k)
 
     if not results:
         # 保存搜索记录
@@ -29,43 +36,56 @@ def search_similar_cases(
             user_id=current_user.id,
             case_name=req.case_name,
             case_description=req.case_description,
-            time_range_start=req.time_range_start,
-            time_range_end=req.time_range_end,
+            time_range_start=time_range_start,
+            time_range_end=time_range_end,
             result_count=0,
         )
         db.add(history)
         db.commit()
-        return SearchResult(query_summary=req.case_description[:100], similar_cases=[], total_found=0)
+        return SearchResult(
+            query_summary=req.case_description[:100],
+            similar_cases=[],
+            total_found=0,
+            extracted_filters=extracted_filters,
+        )
 
     # 获取案例详情
     case_ids = [r[0] for r in results]
     cases = db.query(LegalCase).filter(LegalCase.id.in_(case_ids)).all()
     case_map = {c.id: c for c in cases}
 
-    # 时间过滤
+    # 元数据后置过滤：DeepSeek 提取的案件类型 / 裁判日期范围
     similar_cases = []
     for case_id, score in results:
         case = case_map.get(case_id)
         if not case:
             continue
-        # 时间范围过滤
-        if req.time_range_start and case.judge_date and case.judge_date < req.time_range_start:
+
+        if case_type and normalize_case_type(case.case_type) != case_type:
             continue
-        if req.time_range_end and case.judge_date and case.judge_date > req.time_range_end:
+
+        judge_date = normalize_date(case.judge_date)
+        if time_range_start and (not judge_date or judge_date < time_range_start):
             continue
+        if time_range_end and (not judge_date or judge_date > time_range_end):
+            continue
+
         similar_cases.append(SimilarCase(
             case=CaseOut.model_validate(case),
-            similarity_score=round(score, 4),
+            similarity_score=round(score, 2),
             match_highlights=case.keywords,
         ))
+
+        if len(similar_cases) >= top_k:
+            break
 
     # 保存搜索记录
     history = SearchHistory(
         user_id=current_user.id,
         case_name=req.case_name,
         case_description=req.case_description,
-        time_range_start=req.time_range_start,
-        time_range_end=req.time_range_end,
+        time_range_start=time_range_start,
+        time_range_end=time_range_end,
         result_count=len(similar_cases),
     )
     db.add(history)
@@ -75,6 +95,7 @@ def search_similar_cases(
         query_summary=req.case_description[:100],
         similar_cases=similar_cases,
         total_found=len(similar_cases),
+        extracted_filters=extracted_filters,
     )
 
 

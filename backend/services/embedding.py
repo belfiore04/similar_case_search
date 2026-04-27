@@ -23,6 +23,19 @@ _faiss_index: Optional[faiss.IndexFlatIP] = None  # 内积 (余弦相似度 on n
 _id_map: List[int] = []  # FAISS内部id -> 数据库case id
 
 
+def inner_product_to_percent(score: float) -> float:
+    """
+    Convert FAISS inner product score to a percentage similarity score.
+
+    Vectors are L2-normalized before entering FAISS, so inner product is cosine
+    similarity in [-1, 1]. The paper-facing score is mapped to [0, 100]:
+
+        percent = ((cosine + 1) / 2) * 100
+    """
+    clamped = max(-1.0, min(1.0, float(score)))
+    return ((clamped + 1.0) / 2.0) * 100.0
+
+
 def _ensure_dir():
     os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
 
@@ -53,9 +66,9 @@ def get_embeddings_batch(texts: List[str]) -> List[np.ndarray]:
         return [_mock_embedding(t) for t in texts]
 
     results = []
-    # DashScope 批量限制25条
-    for i in range(0, len(texts), 25):
-        batch = texts[i:i+25]
+    # DashScope text-embedding-v3 当前批量限制为 10 条
+    for i in range(0, len(texts), 10):
+        batch = texts[i:i+10]
         resp = TextEmbedding.call(
             model=TextEmbedding.Models.text_embedding_v3,
             input=batch,
@@ -67,7 +80,9 @@ def get_embeddings_batch(texts: List[str]) -> List[np.ndarray]:
                 vec = vec / np.linalg.norm(vec)
                 results.append(vec)
         else:
-            raise RuntimeError(f"DashScope Embedding 批量调用失败: {resp.code}")
+            message = getattr(resp, "message", "")
+            print(f"DashScope Embedding 批量调用失败，改为逐条调用: {resp.code} {message}")
+            results.extend([get_embedding(text) for text in batch])
     return results
 
 
@@ -139,7 +154,7 @@ def add_batch_to_index(case_ids: List[int], texts: List[str]):
 
 
 def search_similar(text: str, top_k: int = 5) -> List[tuple]:
-    """搜索相似案例，返回 [(case_id, score), ...]"""
+    """搜索相似案例，返回 [(case_id, similarity_percent), ...]"""
     global _faiss_index, _id_map
     if _faiss_index is None:
         load_faiss_index()
@@ -152,7 +167,7 @@ def search_similar(text: str, top_k: int = 5) -> List[tuple]:
     results = []
     for score, idx in zip(scores[0], indices[0]):
         if idx < len(_id_map) and idx >= 0:
-            results.append((_id_map[idx], float(score)))
+            results.append((_id_map[idx], inner_product_to_percent(float(score))))
     return results
 
 
@@ -259,10 +274,13 @@ def search_similar_chunked(text: str, top_k: int = 5) -> List[Tuple[int, float]]
     2. 每个 chunk 独立向量化并检索 Top-K
     3. 合并所有 chunk 的检索结果，按综合得分重新排序
 
-    综合得分 = max_score * 0.4 + avg_score * 0.3 + hit_ratio * 0.3
-      - max_score: 该案例在所有 chunk 中的最高相似度
-      - avg_score: 该案例在所有命中 chunk 中的平均相似度
-      - hit_ratio: 命中该案例的 chunk 数 / 总 chunk 数
+    单路相似度先由 FAISS 内积映射为百分制：
+      similarity_percent = ((inner_product + 1) / 2) * 100
+
+    综合得分 = max_score * 0.4 + avg_score * 0.3 + hit_percent * 0.3
+      - max_score: 该案例在所有 chunk 中的最高百分制相似度
+      - avg_score: 该案例在所有命中 chunk 中的平均百分制相似度
+      - hit_percent: 命中该案例的 chunk 数 / 总 chunk 数 * 100
     """
     chunks = split_query_into_chunks(text)
 
@@ -290,9 +308,9 @@ def search_similar_chunked(text: str, top_k: int = 5) -> List[Tuple[int, float]]
     for case_id, scores in all_hits.items():
         max_score = max(scores)
         avg_score = sum(scores) / len(scores)
-        hit_ratio = len(scores) / num_chunks
-        combined = max_score * 0.4 + avg_score * 0.3 + hit_ratio * 0.3
-        merged.append((case_id, round(combined, 4)))
+        hit_percent = len(scores) / num_chunks * 100.0
+        combined = max_score * 0.4 + avg_score * 0.3 + hit_percent * 0.3
+        merged.append((case_id, round(max(0.0, min(100.0, combined)), 2)))
 
     merged.sort(key=lambda x: x[1], reverse=True)
     return merged[:top_k]

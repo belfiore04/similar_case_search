@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -80,7 +80,16 @@ class SearchRequest(BaseModel):
     case_description: str
     time_range_start: Optional[str] = None
     time_range_end: Optional[str] = None
+    case_type: Optional[str] = None
     top_k: Optional[int] = 5
+
+
+class ExtractedFilters(BaseModel):
+    case_type: Optional[str] = None
+    time_range_start: Optional[str] = None
+    time_range_end: Optional[str] = None
+    cause_keywords: List[str] = Field(default_factory=list)
+    source: Optional[str] = None
 
 
 class SimilarCase(BaseModel):
@@ -93,6 +102,7 @@ class SearchResult(BaseModel):
     query_summary: str
     similar_cases: List[SimilarCase]
     total_found: int
+    extracted_filters: Optional[ExtractedFilters] = None
 
 
 # === Report ===

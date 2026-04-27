@@ -107,17 +107,17 @@ export default function ChatPage() {
   }
 
   const getScoreClass = (score) => {
-    if (score >= 0.8) return 'score-high'
-    if (score >= 0.6) return 'score-medium'
-    if (score >= 0.4) return 'score-low'
+    if (score >= 80) return 'score-high'
+    if (score >= 60) return 'score-medium'
+    if (score >= 40) return 'score-low'
     return 'score-very-low'
   }
 
   const getScoreLabel = (score) => {
-    const pct = Math.round(score * 100)
-    if (score >= 0.8) return `${pct}% 高度相似`
-    if (score >= 0.6) return `${pct}% 较为相似`
-    if (score >= 0.4) return `${pct}% 部分相似`
+    const pct = Math.round(score)
+    if (score >= 80) return `${pct}% 高度相似`
+    if (score >= 60) return `${pct}% 较为相似`
+    if (score >= 40) return `${pct}% 部分相似`
     return `${pct}%`
   }
 
@@ -208,6 +208,7 @@ export default function ChatPage() {
               }
 
               const cases = msg.results?.similar_cases || []
+              const filters = msg.results?.extracted_filters
               return (
                 <div key={idx} className="msg-system animate-in">
                   <div className="msg-system-header">
@@ -224,6 +225,21 @@ export default function ChatPage() {
                       <div className="result-summary-text">
                         共检索到 <strong>{msg.results.total_found}</strong> 个相似案例，以下是匹配度最高的结果：
                       </div>
+
+                      {filters && (filters.case_type || filters.time_range_start || filters.time_range_end || filters.cause_keywords?.length > 0) && (
+                        <div style={{ marginBottom: 12 }}>
+                          <span style={{ color: '#999', fontSize: 13, marginRight: 8 }}>已识别筛选条件</span>
+                          {filters.case_type && <Tag color="blue">{filters.case_type}</Tag>}
+                          {(filters.time_range_start || filters.time_range_end) && (
+                            <Tag color="purple">
+                              {filters.time_range_start || '不限'} 至 {filters.time_range_end || '不限'}
+                            </Tag>
+                          )}
+                          {filters.cause_keywords?.map((keyword) => (
+                            <Tag key={keyword}>{keyword}</Tag>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="result-cards-list">
                         {cases.map((item, i) => (
