@@ -121,6 +121,12 @@ export default function ChatPage() {
     return `${pct}%`
   }
 
+  const getCaseText = (caseItem, field) => {
+    if (!caseItem) return '暂无'
+    const displayField = `${field}_display`
+    return caseItem[field] || caseItem[displayField] || '暂无'
+  }
+
   const hints = [
     '张某与李某因房屋买卖合同产生纠纷，张某已支付定金但李某拒绝过户...',
     '某公司员工在工作期间受伤，公司未缴纳工伤保险，员工要求赔偿...',
@@ -273,8 +279,10 @@ export default function ChatPage() {
                                 <span style={{ color: '#d97706' }}>{item.case.cause_of_action}</span>
                               )}
                             </div>
-                            {item.case.case_summary && (
-                              <div className="result-case-summary">{item.case.case_summary}</div>
+                            {(item.case.case_summary || item.case.case_summary_display) && (
+                              <div className="result-case-summary">
+                                {item.case.case_summary || item.case.case_summary_display}
+                              </div>
                             )}
                           </div>
                         ))}
@@ -439,12 +447,13 @@ export default function ChatPage() {
               defaultActiveKey={['1', '2', '3']}
               ghost
               items={[
-                { key: '1', label: '基本案情', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.case_summary || '暂无'}</Paragraph> },
+                { key: '1', label: '基本案情', children: <Paragraph style={{ lineHeight: 2 }}>{getCaseText(detailModal, 'case_summary')}</Paragraph> },
                 { key: '2', label: '争议焦点', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.dispute_focus || '暂无'}</Paragraph> },
-                { key: '3', label: '裁判结果', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.judgment_result || '暂无'}</Paragraph> },
-                { key: '4', label: '裁判理由', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.judgment_reason || '暂无'}</Paragraph> },
+                { key: '3', label: '裁判结果', children: <Paragraph style={{ lineHeight: 2 }}>{getCaseText(detailModal, 'judgment_result')}</Paragraph> },
+                { key: '4', label: '裁判理由', children: <Paragraph style={{ lineHeight: 2 }}>{getCaseText(detailModal, 'judgment_reason')}</Paragraph> },
                 { key: '5', label: '裁判要点', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.judgment_points || '暂无'}</Paragraph> },
                 { key: '6', label: '相关法条', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.related_laws || '暂无'}</Paragraph> },
+                { key: '7', label: '裁判文书摘录', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.full_text_preview || '暂无'}</Paragraph> },
               ]}
             />
           </div>

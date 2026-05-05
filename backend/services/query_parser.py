@@ -2,7 +2,7 @@
 Query filter extraction service.
 
 Uses DeepSeek to extract structured filters from the user's natural-language
-case description, with a small rule-based fallback for local demos.
+case description.
 """
 import json
 import os
@@ -13,7 +13,6 @@ from typing import Any, Dict, Optional
 from openai import OpenAI
 
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 
@@ -62,24 +61,24 @@ def parse_query_filters(text: str) -> Dict[str, Any]:
             "time_range_start": "YYYY-MM-DD" | None,
             "time_range_end": "YYYY-MM-DD" | None,
             "cause_keywords": list[str],
-            "source": "deepseek" | "rule_fallback"
+            "source": "deepseek"
         }
     """
-    if DEEPSEEK_API_KEY:
-        try:
-            filters = _parse_with_deepseek(text)
-            filters["source"] = "deepseek"
-            return _normalize_filters(filters)
-        except Exception as exc:
-            print(f"[query_parser] DeepSeek extraction failed, falling back to rules: {exc}")
-
-    filters = _parse_with_rules(text)
-    filters["source"] = "rule_fallback"
+    try:
+        filters = _parse_with_deepseek(text)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"DeepSeek 查询条件抽取失败: {exc}") from exc
+    filters["source"] = "deepseek"
     return _normalize_filters(filters)
 
 
 def _parse_with_deepseek(text: str) -> Dict[str, Any]:
-    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY 未设置，无法调用真实 DeepSeek 查询条件抽取服务。")
+    client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
     today = date.today().isoformat()
     prompt = f"""请从用户输入的法律类案检索 query 中抽取结构化筛选条件。
 
@@ -145,43 +144,4 @@ def _normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
         "time_range_end": normalize_date(filters.get("time_range_end")),
         "cause_keywords": cause_keywords,
         "source": filters.get("source") or "unknown",
-    }
-
-
-def _parse_with_rules(text: str) -> Dict[str, Any]:
-    case_type = None
-    if any(word in text for word in ["盗窃", "诈骗", "危险驾驶", "刑事", "公诉"]):
-        case_type = "刑事"
-    elif any(word in text for word in ["行政", "处罚决定", "行政处罚", "市场监督", "生态环境部门"]):
-        case_type = "行政"
-    elif any(word in text for word in ["合同", "借款", "租赁", "劳动", "离婚", "侵权", "赔偿", "民事"]):
-        case_type = "民事"
-
-    start = None
-    end = None
-    range_match = re.search(r"(\d{4})\s*年?\s*(?:到|至|-|—|~)\s*(\d{4})\s*年?", text)
-    if range_match:
-        start = f"{range_match.group(1)}-01-01"
-        end = f"{range_match.group(2)}-12-31"
-    else:
-        after_match = re.search(r"(\d{4})\s*年?\s*(以后|之后|以来|起)", text)
-        before_match = re.search(r"(\d{4})\s*年?\s*(以前|之前|前)", text)
-        if after_match:
-            start = f"{after_match.group(1)}-01-01"
-        if before_match:
-            end = f"{before_match.group(1)}-12-31"
-
-    keywords = []
-    for keyword in [
-        "买卖合同", "劳动合同", "民间借贷", "交通事故", "房屋租赁", "离婚",
-        "继承", "侵权", "知识产权", "盗窃", "诈骗", "危险驾驶", "行政处罚",
-    ]:
-        if keyword in text:
-            keywords.append(keyword)
-
-    return {
-        "case_type": case_type,
-        "time_range_start": start,
-        "time_range_end": end,
-        "cause_keywords": keywords,
     }

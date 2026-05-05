@@ -68,6 +68,10 @@ class CaseOut(BaseModel):
     judgment_points: Optional[str]
     related_laws: Optional[str]
     keywords: Optional[str]
+    full_text_preview: Optional[str] = None
+    case_summary_display: Optional[str] = None
+    judgment_reason_display: Optional[str] = None
+    judgment_result_display: Optional[str] = None
     created_at: Optional[datetime]
 
     class Config:

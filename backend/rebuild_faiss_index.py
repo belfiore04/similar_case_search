@@ -20,7 +20,7 @@ def main() -> int:
         cases = db.query(LegalCase).order_by(LegalCase.id.asc()).all()
         rebuild_index(cases)
         print(f"Rebuilt FAISS index for {len(cases)} cases")
-        print(f"Embedding mode: {'dashscope' if os.getenv('DASHSCOPE_API_KEY') else 'mock'}")
+        print("Embedding provider: dashscope/text-embedding-v3")
     finally:
         db.close()
     return 0

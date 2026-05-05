@@ -1,5 +1,5 @@
 """
-Evaluate DeepSeek query filter extraction for local demo scenarios.
+Evaluate DeepSeek query filter extraction for local scenarios.
 
 Run:
   DEEPSEEK_API_KEY=... python evaluate_query_parser.py
@@ -72,7 +72,7 @@ TEST_CASES = [
 
 def main() -> int:
     print("Query Parser Evaluation")
-    print(f"Mode: {'deepseek' if os.getenv('DEEPSEEK_API_KEY') else 'rule_fallback'}")
+    print("Mode: deepseek")
     print("-" * 88)
 
     field_totals = {"case_type": 0, "time_range_start": 0, "time_range_end": 0}

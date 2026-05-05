@@ -26,6 +26,12 @@ export default function AdminCasesPage() {
   const [detailModal, setDetailModal] = useState(null)
   const [form] = Form.useForm()
 
+  const getCaseText = (caseItem, field) => {
+    if (!caseItem) return '暂无'
+    const displayField = `${field}_display`
+    return caseItem[field] || caseItem[displayField] || '暂无'
+  }
+
   const fetchCases = async () => {
     setLoading(true)
     try {
@@ -231,12 +237,13 @@ export default function AdminCasesPage() {
               defaultActiveKey={['1']}
               ghost
               items={[
-                { key: '1', label: '基本案情', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.case_summary || '暂无'}</Paragraph> },
+                { key: '1', label: '基本案情', children: <Paragraph style={{ lineHeight: 2 }}>{getCaseText(detailModal, 'case_summary')}</Paragraph> },
                 { key: '2', label: '争议焦点', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.dispute_focus || '暂无'}</Paragraph> },
-                { key: '3', label: '裁判结果', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.judgment_result || '暂无'}</Paragraph> },
-                { key: '4', label: '裁判理由', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.judgment_reason || '暂无'}</Paragraph> },
+                { key: '3', label: '裁判结果', children: <Paragraph style={{ lineHeight: 2 }}>{getCaseText(detailModal, 'judgment_result')}</Paragraph> },
+                { key: '4', label: '裁判理由', children: <Paragraph style={{ lineHeight: 2 }}>{getCaseText(detailModal, 'judgment_reason')}</Paragraph> },
                 { key: '5', label: '裁判要点', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.judgment_points || '暂无'}</Paragraph> },
                 { key: '6', label: '相关法条', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.related_laws || '暂无'}</Paragraph> },
+                { key: '7', label: '裁判文书摘录', children: <Paragraph style={{ lineHeight: 2 }}>{detailModal.full_text_preview || '暂无'}</Paragraph> },
               ]}
             />
           </div>

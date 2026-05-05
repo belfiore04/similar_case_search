@@ -41,6 +41,57 @@ class LegalCase(Base):
     source_url = Column(String(500))  # 原始链接
     created_at = Column(DateTime, server_default=func.now())
 
+    @staticmethod
+    def _compact_text(text, max_len=1000):
+        if not text:
+            return None
+        compacted = " ".join(str(text).split())
+        if len(compacted) <= max_len:
+            return compacted
+        return compacted[:max_len] + "..."
+
+    @staticmethod
+    def _slice_between(text, start_markers, end_markers, max_len=1000):
+        if not text:
+            return None
+        start = -1
+        for marker in start_markers:
+            start = text.find(marker)
+            if start >= 0:
+                break
+        if start < 0:
+            return None
+        end_candidates = [text.find(marker, start + 1) for marker in end_markers]
+        end_candidates = [idx for idx in end_candidates if idx > start]
+        end = min(end_candidates) if end_candidates else start + max_len
+        return LegalCase._compact_text(text[start:end], max_len=max_len)
+
+    @property
+    def full_text_preview(self):
+        return self._compact_text(self.full_text, max_len=1200)
+
+    @property
+    def case_summary_display(self):
+        return self.case_summary or self.full_text_preview
+
+    @property
+    def judgment_reason_display(self):
+        return self.judgment_reason or self._slice_between(
+            self.full_text,
+            ["本院认为", "本院经审理认为"],
+            ["综上", "判决如下", "裁定如下", "依照"],
+            max_len=1200,
+        )
+
+    @property
+    def judgment_result_display(self):
+        return self.judgment_result or self._slice_between(
+            self.full_text,
+            ["判决如下", "裁定如下"],
+            ["如不服本判决", "本判决为终审判决", "审判长", "审 判 长"],
+            max_len=800,
+        )
+
 
 class SearchHistory(Base):
     __tablename__ = "search_history"

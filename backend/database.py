@@ -9,13 +9,19 @@ import os
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    # PostgreSQL 模式：启用连接池
-    engine = create_engine(
-        DATABASE_URL,
-        pool_size=20,
-        max_overflow=30,
-        pool_pre_ping=True,
-    )
+    if DATABASE_URL.startswith("sqlite"):
+        engine = create_engine(
+            DATABASE_URL,
+            connect_args={"check_same_thread": False},
+        )
+    else:
+        # PostgreSQL 模式：启用连接池
+        engine = create_engine(
+            DATABASE_URL,
+            pool_size=20,
+            max_overflow=30,
+            pool_pre_ping=True,
+        )
 else:
     # SQLite 开发模式（向后兼容）
     DB_PATH = os.path.join(os.path.dirname(__file__), "app.db")

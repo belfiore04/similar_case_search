@@ -11,12 +11,12 @@ from typing import List, Optional, Dict, Tuple
 import dashscope
 from dashscope import TextEmbedding
 
-# 配置 DashScope API Key
-dashscope.api_key = os.getenv("DASHSCOPE_API_KEY", "")
-
 EMBEDDING_DIM = 1024  # text-embedding-v3 维度
+EMBEDDING_PROVIDER = "dashscope"
+EMBEDDING_MODEL = "text-embedding-v3"
 FAISS_INDEX_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "faiss_index")
 ID_MAP_PATH = os.path.join(FAISS_INDEX_PATH, "id_map.json")
+META_PATH = os.path.join(FAISS_INDEX_PATH, "meta.json")
 
 # 全局 FAISS index
 _faiss_index: Optional[faiss.IndexFlatIP] = None  # 内积 (余弦相似度 on normalized vectors)
@@ -40,17 +40,48 @@ def _ensure_dir():
     os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
 
 
+def _get_dashscope_api_key() -> str:
+    return os.getenv("DASHSCOPE_API_KEY", "").strip()
+
+
+def _require_dashscope_api_key() -> str:
+    api_key = _get_dashscope_api_key()
+    if not api_key:
+        raise RuntimeError("DASHSCOPE_API_KEY 未设置，无法调用真实 DashScope embedding 服务。")
+    dashscope.api_key = api_key
+    return api_key
+
+
+def _current_meta() -> dict:
+    return {
+        "embedding_provider": EMBEDDING_PROVIDER,
+        "embedding_model": EMBEDDING_MODEL,
+        "dimension": EMBEDDING_DIM,
+    }
+
+
+def _meta_matches() -> bool:
+    if not os.path.exists(META_PATH):
+        return False
+    try:
+        with open(META_PATH, "r", encoding="utf-8") as f:
+            return json.load(f) == _current_meta()
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
 def get_embedding(text: str) -> np.ndarray:
     """调用阿里 DashScope 获取文本嵌入向量"""
-    if not dashscope.api_key:
-        # Mock模式：生成确定性伪向量用于开发测试
-        return _mock_embedding(text)
+    _require_dashscope_api_key()
 
-    resp = TextEmbedding.call(
-        model=TextEmbedding.Models.text_embedding_v3,
-        input=text,
-        dimension=EMBEDDING_DIM,
-    )
+    try:
+        resp = TextEmbedding.call(
+            model=TextEmbedding.Models.text_embedding_v3,
+            input=text,
+            dimension=EMBEDDING_DIM,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"DashScope Embedding 调用失败: {exc}") from exc
     if resp.status_code == 200:
         vec = np.array(resp.output["embeddings"][0]["embedding"], dtype=np.float32)
         # L2 归一化，使内积等价于余弦相似度
@@ -62,18 +93,22 @@ def get_embedding(text: str) -> np.ndarray:
 
 def get_embeddings_batch(texts: List[str]) -> List[np.ndarray]:
     """批量获取嵌入向量"""
-    if not dashscope.api_key:
-        return [_mock_embedding(t) for t in texts]
+    _require_dashscope_api_key()
 
     results = []
     # DashScope text-embedding-v3 当前批量限制为 10 条
     for i in range(0, len(texts), 10):
         batch = texts[i:i+10]
-        resp = TextEmbedding.call(
-            model=TextEmbedding.Models.text_embedding_v3,
-            input=batch,
-            dimension=EMBEDDING_DIM,
-        )
+        try:
+            resp = TextEmbedding.call(
+                model=TextEmbedding.Models.text_embedding_v3,
+                input=batch,
+                dimension=EMBEDDING_DIM,
+            )
+        except Exception as exc:
+            print(f"DashScope Embedding 批量调用失败，改为逐条调用: {exc}")
+            results.extend([get_embedding(text) for text in batch])
+            continue
         if resp.status_code == 200:
             for emb in resp.output["embeddings"]:
                 vec = np.array(emb["embedding"], dtype=np.float32)
@@ -86,35 +121,14 @@ def get_embeddings_batch(texts: List[str]) -> List[np.ndarray]:
     return results
 
 
-def _mock_embedding(text: str) -> np.ndarray:
-    """Mock嵌入：基于文本hash生成伪向量，保证相同文本返回相同向量"""
-    import hashlib
-    seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % (2**32)
-    rng = np.random.RandomState(seed)
-    vec = rng.randn(EMBEDDING_DIM).astype(np.float32)
-    # 加入关键词特征，让相似文本的向量更接近
-    keywords_weights = {
-        "合同": 0, "纠纷": 1, "违约": 2, "侵权": 3, "赔偿": 4,
-        "买卖": 5, "租赁": 6, "劳动": 7, "借款": 8, "担保": 9,
-        "离婚": 10, "继承": 11, "房屋": 12, "知识产权": 13, "公司": 14,
-        "民事": 15, "刑事": 16, "行政": 17, "原告": 18, "被告": 19,
-        "损害": 20, "责任": 21, "协议": 22, "支付": 23, "交付": 24,
-    }
-    for kw, idx in keywords_weights.items():
-        if kw in text:
-            vec[idx * 40: (idx + 1) * 40] += 3.0
-    vec = vec / np.linalg.norm(vec)
-    return vec
-
-
 def load_faiss_index():
     """加载 FAISS 索引"""
     global _faiss_index, _id_map
     _ensure_dir()
     index_file = os.path.join(FAISS_INDEX_PATH, "index.faiss")
-    if os.path.exists(index_file) and os.path.exists(ID_MAP_PATH):
+    if os.path.exists(index_file) and os.path.exists(ID_MAP_PATH) and _meta_matches():
         _faiss_index = faiss.read_index(index_file)
-        with open(ID_MAP_PATH, "r") as f:
+        with open(ID_MAP_PATH, "r", encoding="utf-8") as f:
             _id_map = json.load(f)
     else:
         _faiss_index = faiss.IndexFlatIP(EMBEDDING_DIM)
@@ -126,8 +140,10 @@ def save_faiss_index():
     _ensure_dir()
     if _faiss_index is not None:
         faiss.write_index(_faiss_index, os.path.join(FAISS_INDEX_PATH, "index.faiss"))
-        with open(ID_MAP_PATH, "w") as f:
+        with open(ID_MAP_PATH, "w", encoding="utf-8") as f:
             json.dump(_id_map, f)
+        with open(META_PATH, "w", encoding="utf-8") as f:
+            json.dump(_current_meta(), f, ensure_ascii=False, indent=2)
 
 
 def add_to_index(case_id: int, text: str):
