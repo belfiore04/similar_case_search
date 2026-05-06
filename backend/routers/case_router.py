@@ -5,9 +5,19 @@ from database import get_db
 from models import LegalCase, User
 from schemas import CaseCreate, CaseOut
 from auth import get_current_user
-from services.embedding import add_to_index, _build_case_text
+from services.embedding import add_to_index, rebuild_index, _build_case_text
 
 router = APIRouter(prefix="/api/cases", tags=["案例管理"])
+
+
+def require_admin(current_user: User):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可执行该操作")
+
+
+def rebuild_index_from_db(db: Session):
+    cases = db.query(LegalCase).order_by(LegalCase.id.asc()).all()
+    rebuild_index(cases)
 
 
 @router.get("", response_model=List[CaseOut])
@@ -59,6 +69,7 @@ def create_case(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_admin(current_user)
     case = LegalCase(**data.model_dump())
     db.add(case)
     db.commit()
@@ -76,6 +87,7 @@ def update_case(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_admin(current_user)
     case = db.query(LegalCase).filter(LegalCase.id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="案例不存在")
@@ -83,6 +95,7 @@ def update_case(
         setattr(case, key, value)
     db.commit()
     db.refresh(case)
+    rebuild_index_from_db(db)
     return case
 
 
@@ -92,9 +105,11 @@ def delete_case(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_admin(current_user)
     case = db.query(LegalCase).filter(LegalCase.id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="案例不存在")
     db.delete(case)
     db.commit()
+    rebuild_index_from_db(db)
     return {"message": "删除成功"}
