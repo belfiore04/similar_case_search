@@ -1,16 +1,28 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Form, Input, Button, message, Tabs } from 'antd'
+import { Alert, Form, Input, Button, message, Tabs } from 'antd'
 import { UserOutlined, LockOutlined, IdcardOutlined, BookOutlined } from '@ant-design/icons'
 import { login, register } from '../services/api'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('login')
+  const [authError, setAuthError] = useState('')
   const navigate = useNavigate()
+
+  const getAuthErrorMessage = (err, fallback) => {
+    const status = err.response?.status
+    const detail = err.response?.data?.detail
+    if (status === 401) return detail || '用户名或密码错误，请检查后重试'
+    if (status === 403) return detail || '当前账号没有权限'
+    if (status >= 500) return '服务器内部错误，请查看后端日志'
+    if (err.code === 'ERR_NETWORK') return '无法连接后端服务，请确认后端已启动且前端 API 地址正确'
+    return detail || err.message || fallback
+  }
 
   const handleLogin = async (values) => {
     setLoading(true)
+    setAuthError('')
     try {
       const res = await login(values)
       localStorage.setItem('token', res.data.access_token)
@@ -18,7 +30,9 @@ export default function LoginPage() {
       message.success('登录成功')
       navigate('/')
     } catch (err) {
-      message.error(err.response?.data?.detail || '登录失败')
+      const errorText = getAuthErrorMessage(err, '登录失败')
+      setAuthError(errorText)
+      message.error(errorText)
     } finally {
       setLoading(false)
     }
@@ -26,12 +40,15 @@ export default function LoginPage() {
 
   const handleRegister = async (values) => {
     setLoading(true)
+    setAuthError('')
     try {
       await register(values)
       message.success('注册成功，请登录')
       setActiveTab('login')
     } catch (err) {
-      message.error(err.response?.data?.detail || '注册失败')
+      const errorText = getAuthErrorMessage(err, '注册失败')
+      setAuthError(errorText)
+      message.error(errorText)
     } finally {
       setLoading(false)
     }
@@ -48,7 +65,7 @@ export default function LoginPage() {
 
         <Tabs
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={(key) => { setActiveTab(key); setAuthError('') }}
           centered
           items={[
             {
@@ -56,6 +73,14 @@ export default function LoginPage() {
               label: '登录',
               children: (
                 <Form onFinish={handleLogin} size="large" autoComplete="off">
+                  {authError && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      message={authError}
+                      style={{ marginBottom: 16 }}
+                    />
+                  )}
                   <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
                     <Input prefix={<UserOutlined style={{ color: '#bbb' }} />} placeholder="用户名" />
                   </Form.Item>
@@ -78,6 +103,14 @@ export default function LoginPage() {
               label: '注册',
               children: (
                 <Form onFinish={handleRegister} size="large" autoComplete="off">
+                  {authError && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      message={authError}
+                      style={{ marginBottom: 16 }}
+                    />
+                  )}
                   <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
                     <Input prefix={<UserOutlined style={{ color: '#bbb' }} />} placeholder="用户名" />
                   </Form.Item>
