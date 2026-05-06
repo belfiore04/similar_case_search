@@ -51,6 +51,14 @@ class CaseCreate(BaseModel):
     full_text: Optional[str] = None
 
 
+class CsvImportResult(BaseModel):
+    imported: int
+    skipped: int
+    total_rows: int
+    index_updated: bool
+    message: str
+
+
 class CaseOut(BaseModel):
     id: int
     case_name: str

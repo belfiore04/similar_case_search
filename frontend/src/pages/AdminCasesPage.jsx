@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Card, Table, Button, Space, Input, Select, Modal, Form,
+  Card, Table, Button, Space, Input, Select, Modal, Form, Upload,
   message, Popconfirm, Tag, Descriptions, Collapse, Typography,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
-  ArrowLeftOutlined, BookOutlined,
+  ArrowLeftOutlined, BookOutlined, UploadOutlined,
 } from '@ant-design/icons'
-import { getCases, getCaseCount, createCase, updateCase, deleteCase } from '../services/api'
+import { getCases, getCaseCount, createCase, updateCase, deleteCase, importCasesCsv } from '../services/api'
 
 const { TextArea } = Input
 const { Paragraph } = Typography
@@ -24,6 +24,7 @@ export default function AdminCasesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingCase, setEditingCase] = useState(null)
   const [detailModal, setDetailModal] = useState(null)
+  const [importing, setImporting] = useState(false)
   const [form] = Form.useForm()
 
   const getCaseText = (caseItem, field) => {
@@ -75,6 +76,29 @@ export default function AdminCasesPage() {
       fetchCases()
     } catch {
       message.error('删除失败')
+    }
+  }
+
+  const handleCsvUpload = async ({ file, onSuccess, onError }) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    setImporting(true)
+    try {
+      const res = await importCasesCsv(formData)
+      const { imported, skipped, total_rows, index_updated, message: detail } = res.data
+      const content = `${detail}，跳过 ${skipped}/${total_rows} 条`
+      if (index_updated) {
+        message.success(content)
+      } else {
+        message.warning(content)
+      }
+      fetchCases()
+      onSuccess?.(res.data)
+    } catch (err) {
+      message.error('导入失败：' + (err.response?.data?.detail || err.message))
+      onError?.(err)
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -133,6 +157,15 @@ export default function AdminCasesPage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
           新增案例
         </Button>
+        <Upload
+          accept=".csv,text/csv"
+          showUploadList={false}
+          customRequest={handleCsvUpload}
+        >
+          <Button icon={<UploadOutlined />} loading={importing}>
+            导入 CSV
+          </Button>
+        </Upload>
       </div>
 
       <div className="admin-content">
