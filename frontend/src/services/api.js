@@ -20,7 +20,8 @@ api.interceptors.response.use(
   (err) => {
     const requestUrl = err.config?.url || '';
     const isAuthRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
-    if (err.response?.status === 401 && !isAuthRequest) {
+    const isLoginPage = window.location.pathname === '/login';
+    if (err.response?.status === 401 && !isAuthRequest && !isLoginPage) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
