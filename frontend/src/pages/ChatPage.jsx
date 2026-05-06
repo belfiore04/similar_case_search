@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Input, Modal, Descriptions, Collapse, Typography, Table, Tag, Dropdown, message } from 'antd'
 import {
   SendOutlined, BookOutlined, LogoutOutlined, UserOutlined,
-  SettingOutlined, FileTextOutlined, BankOutlined, CalendarOutlined,
+  SettingOutlined, FileTextOutlined, BankOutlined, CalendarOutlined, DownloadOutlined,
 } from '@ant-design/icons'
 import { searchSimilar, generateReport } from '../services/api'
 
@@ -125,6 +125,104 @@ export default function ChatPage() {
     if (!caseItem) return '暂无'
     const displayField = `${field}_display`
     return caseItem[field] || caseItem[displayField] || '暂无'
+  }
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+
+  const fileSafeName = (value) => {
+    const safe = String(value || '类案检索分析报告')
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 60)
+    return safe || '类案检索分析报告'
+  }
+
+  const buildReportHtml = (report, query) => {
+    const comparisons = report.comparisons || []
+    const legalReferences = report.legal_references || []
+    const comparisonRows = comparisons.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.aspect)}</td>
+        <td>${escapeHtml(item.user_case)}</td>
+        <td>${escapeHtml(item.similar_case)}</td>
+        <td>${escapeHtml(item.analysis)}</td>
+      </tr>
+    `).join('')
+    const legalItems = legalReferences.map((ref) => `<li>${escapeHtml(ref)}</li>`).join('')
+
+    return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(report.title || '类案检索分析报告')}</title>
+  <style>
+    body { margin: 0; color: #1f2933; background: #f6f7f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 48px 40px; background: #fff; min-height: 100vh; }
+    h1 { margin: 0 0 12px; font-size: 28px; line-height: 1.35; color: #111827; }
+    h2 { margin: 32px 0 12px; font-size: 18px; color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+    p { line-height: 1.9; }
+    .meta { color: #6b7280; font-size: 13px; margin-bottom: 28px; }
+    .query { background: #f9fafb; border: 1px solid #e5e7eb; padding: 14px 16px; border-radius: 8px; line-height: 1.8; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: fixed; }
+    th, td { border: 1px solid #d1d5db; padding: 10px 12px; vertical-align: top; line-height: 1.7; word-break: break-word; }
+    th { background: #f3f4f6; color: #374151; text-align: left; }
+    ul { padding-left: 20px; line-height: 1.8; }
+    .conclusion { background: #fff7ed; border-left: 4px solid #d97706; padding: 14px 16px; line-height: 1.9; }
+    @media print {
+      body { background: #fff; }
+      main { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapeHtml(report.title || '类案检索分析报告')}</h1>
+    <div class="meta">生成时间：${escapeHtml(new Date().toLocaleString())}</div>
+    <h2>用户案情</h2>
+    <div class="query">${escapeHtml(query)}</div>
+    <h2>摘要</h2>
+    <p>${escapeHtml(report.summary)}</p>
+    ${comparisons.length ? `
+      <h2>对比分析</h2>
+      <table>
+        <thead>
+          <tr><th>维度</th><th>用户案情</th><th>类案内容</th><th>分析</th></tr>
+        </thead>
+        <tbody>${comparisonRows}</tbody>
+      </table>
+    ` : ''}
+    ${legalReferences.length ? `
+      <h2>相关法律条文</h2>
+      <ul>${legalItems}</ul>
+    ` : ''}
+    ${report.conclusion ? `
+      <h2>综合结论与建议</h2>
+      <div class="conclusion">${escapeHtml(report.conclusion)}</div>
+    ` : ''}
+  </main>
+</body>
+</html>`
+  }
+
+  const handleDownloadReport = (report, query) => {
+    const html = buildReportHtml(report, query)
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${fileSafeName(report.title)}.html`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    message.success('报告已下载')
   }
 
   const hints = [
@@ -316,7 +414,25 @@ export default function ChatPage() {
                         <div className="report-container animate-in">
                           <div className="report-card">
                             <div className="report-card-header">
-                              <FileTextOutlined /> {msg.report.title}
+                              <FileTextOutlined />
+                              <span style={{ flex: 1, minWidth: 0 }}>{msg.report.title}</span>
+                              <button
+                                className="send-btn"
+                                style={{
+                                  marginLeft: 'auto',
+                                  width: 'auto',
+                                  padding: '6px 12px',
+                                  fontSize: 12,
+                                  borderRadius: 8,
+                                  gap: 6,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                }}
+                                onClick={() => handleDownloadReport(msg.report, msg.query)}
+                              >
+                                <DownloadOutlined />
+                                下载报告
+                              </button>
                             </div>
                             <div className="report-card-body">
                               <div className="report-section">
