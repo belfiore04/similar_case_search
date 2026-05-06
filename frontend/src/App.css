@@ -549,6 +549,17 @@
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.06);
 }
 
+.login-error {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .login-submit-btn {
   height: 44px !important;
   border-radius: 10px !important;

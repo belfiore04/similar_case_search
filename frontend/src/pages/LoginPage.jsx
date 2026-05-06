@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Form, Input, Button, message, Tabs } from 'antd'
+import { Form, Input, Button, message, Tabs } from 'antd'
 import { UserOutlined, LockOutlined, IdcardOutlined, BookOutlined } from '@ant-design/icons'
 import { login, register } from '../services/api'
 
@@ -74,12 +74,9 @@ export default function LoginPage() {
               children: (
                 <Form onFinish={handleLogin} size="large" autoComplete="off">
                   {authError && (
-                    <Alert
-                      type="error"
-                      showIcon
-                      message={authError}
-                      style={{ marginBottom: 16 }}
-                    />
+                    <div className="login-error" role="alert">
+                      {authError}
+                    </div>
                   )}
                   <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
                     <Input prefix={<UserOutlined style={{ color: '#bbb' }} />} placeholder="用户名" />
@@ -104,12 +101,9 @@ export default function LoginPage() {
               children: (
                 <Form onFinish={handleRegister} size="large" autoComplete="off">
                   {authError && (
-                    <Alert
-                      type="error"
-                      showIcon
-                      message={authError}
-                      style={{ marginBottom: 16 }}
-                    />
+                    <div className="login-error" role="alert">
+                      {authError}
+                    </div>
                   )}
                   <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
                     <Input prefix={<UserOutlined style={{ color: '#bbb' }} />} placeholder="用户名" />
